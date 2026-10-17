@@ -113,9 +113,26 @@ def draw_claim(canvas, text, color, font_name, position, max_lines):
 
 def compose(src, dst, claim=None, claim_color="white", claim_font="cinzel",
             claim_position="top", max_lines=3, focus=0.5, size=2160, safe_preview=None):
-    img = ImageOps.exif_transpose(Image.open(src)).convert("RGB")
-    canvas = square_crop(img, focus).resize((size, size), Image.LANCZOS).convert("RGBA")
-    info = {"output": str(dst), "size": size}
+    img = ImageOps.exif_transpose(Image.open(src))
+    icc = img.info.get("icc_profile")
+    if icc:  # converte in sRGB: i social mostrano solo sRGB, evita colori spenti
+        try:
+            from PIL import ImageCms
+            import io
+            img = ImageCms.profileToProfile(img.convert("RGB"), ImageCms.ImageCmsProfile(io.BytesIO(icc)),
+                                            ImageCms.createProfile("sRGB"), outputMode="RGB")
+        except Exception:
+            pass
+    img = img.convert("RGB")
+    sq = square_crop(img, focus)
+    warnings = []
+    if sq.width < size:  # mai ingrandire: si perderebbe nitidezza
+        size = sq.width
+        warnings.append(f"Foto più piccola di 2160px: mantenuto il lato originale {size}px (nessun ingrandimento).")
+    if size < 1080:
+        warnings.append("Attenzione: lato < 1080px, qualità insufficiente per Instagram.")
+    canvas = (sq.resize((size, size), Image.LANCZOS) if sq.width != size else sq).convert("RGBA")
+    info = {"output": str(dst), "size": size, "warnings": warnings}
 
     if claim:
         color = COLORS.get(claim_color.lower(), claim_color)
@@ -130,7 +147,9 @@ def compose(src, dst, claim=None, claim_color="white", claim_font="cinzel",
 
     out = canvas.convert("RGB")
     Path(dst).parent.mkdir(parents=True, exist_ok=True)
-    out.save(dst, quality=92, subsampling=0)
+    # JPEG alta qualità: q92, nessun sottocampionamento colore (4:4:4), progressivo.
+    # I metadati EXIF (incluso il GPS della proprietà) non vengono copiati.
+    out.save(dst, "JPEG", quality=92, subsampling=0, optimize=True, progressive=True)
 
     if safe_preview:  # come appare nella griglia 3:4 del profilo Instagram
         vis = int(size * 0.75); l = (size - vis) // 2
