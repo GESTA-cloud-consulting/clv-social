@@ -1,0 +1,45 @@
+# Downloads photos from chiantiluxuryvillas.com into incoming/<job>/ for the
+# clv-property-social skill (the Claude session cannot reach the site directly).
+# Trigger: push a file fetch/<job>.txt with one line per photo: "<url> <filename>".
+name: Fetch site media
+on:
+  push:
+    branches: [main]
+    paths: ['fetch/*.txt']
+permissions:
+  contents: write
+concurrency:
+  group: fetch-site-media
+  cancel-in-progress: false
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Download listed photos
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for job in fetch/*.txt; do
+            name=$(basename "$job" .txt)
+            mkdir -p "incoming/$name"
+            status=ok
+            while read -r url fname; do
+              [ -z "${url:-}" ] && continue
+              case "$url" in https://chiantiluxuryvillas.com/wp-content/uploads/*) ;; *) echo "skip $url"; continue;; esac
+              if ! curl -fsSL --retry 3 -A "Mozilla/5.0 (CLV social fetch)" -o "incoming/$name/$fname" "$url"; then
+                echo "FAILED $url"; status=failed
+              fi
+            done < "$job"
+            echo "$status" > "incoming/$name/_status.txt"
+            git rm -q "$job"
+          done
+      - name: Commit
+        run: |
+          git config user.name "GESTA Cloud Consulting"
+          git config user.email "info@gesta.cc"
+          git add -A incoming fetch
+          git commit -m "Fetch site media" || exit 0
+          git push
