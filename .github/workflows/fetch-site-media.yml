@@ -40,6 +40,6 @@ jobs:
         run: |
           git config user.name "GESTA Cloud Consulting"
           git config user.email "info@gesta.cc"
-          git add -A incoming fetch
+          git add -A .
           git commit -m "Fetch site media" || exit 0
           git push
